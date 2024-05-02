@@ -13,6 +13,7 @@ from diffusers import (
 from facexlib.parsing import init_parsing_model
 from facexlib.utils.face_restoration_helper import FaceRestoreHelper
 from huggingface_hub import hf_hub_download, snapshot_download
+from huggingface_hub.utils._errors import LocalEntryNotFoundError
 from insightface.app import FaceAnalysis
 from safetensors.torch import load_file
 from torchvision.transforms import InterpolationMode
@@ -29,6 +30,7 @@ if is_torch2_available():
 else:
     from pulid.attention_processor import AttnProcessor, IDAttnProcessor
 
+MODEL_CACHE = "models"
 
 class PuLIDPipeline:
     def __init__(self, *args, **kwargs):
@@ -40,11 +42,20 @@ class PuLIDPipeline:
 
         # load base model
         unet = UNet2DConditionModel.from_config(sdxl_base_repo, subfolder='unet').to(self.device, torch.float16)
-        unet.load_state_dict(
-            load_file(
-                hf_hub_download(sdxl_lightning_repo, 'sdxl_lightning_4step_unet.safetensors'), device=self.device
+        try:
+            unet_filepath = hf_hub_download(
+                sdxl_lightning_repo,
+                'sdxl_lightning_4step_unet.safetensors',
+                local_dir=MODEL_CACHE,
+                cache_dir=MODEL_CACHE,
+                local_dir_use_symlinks=False,
             )
-        )
+        except LocalEntryNotFoundError:
+            unet_filepath = None
+            print("[Warning] LocalEntryNotFoundError: Falling back to default path.")
+            unet_filepath = f'{MODEL_CACHE}/sdxl_lightning_4step_unet.safetensors'
+        print(f"[!] unet_filename = {unet_filepath}")
+        unet.load_state_dict(load_file(unet_filepath))
         self.hack_unet_attn_layers(unet)
         self.pipe = StableDiffusionXLPipeline.from_pretrained(
             sdxl_base_repo, unet=unet, torch_dtype=torch.float16, variant="fp16"
@@ -84,12 +95,16 @@ class PuLIDPipeline:
         self.eva_transform_mean = eva_transform_mean
         self.eva_transform_std = eva_transform_std
         # antelopev2
-        snapshot_download('DIAMONIK7777/antelopev2', local_dir='models/antelopev2')
+        snapshot_download(
+            'DIAMONIK7777/antelopev2', 
+            local_dir=f'{MODEL_CACHE}/antelopev2',
+            local_dir_use_symlinks=False,
+        )
         self.app = FaceAnalysis(
             name='antelopev2', root='.', providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
         )
         self.app.prepare(ctx_id=0, det_size=(640, 640))
-        self.handler_ante = insightface.model_zoo.get_model('models/antelopev2/glintr100.onnx')
+        self.handler_ante = insightface.model_zoo.get_model(f'{MODEL_CACHE}/antelopev2/glintr100.onnx')
         self.handler_ante.prepare(ctx_id=0)
 
         gc.collect()
@@ -123,8 +138,17 @@ class PuLIDPipeline:
         self.id_adapter_attn_layers = nn.ModuleList(unet.attn_processors.values())
 
     def load_pretrain(self):
-        hf_hub_download('guozinan/PuLID', 'pulid_v1.bin', local_dir='models')
-        ckpt_path = 'models/pulid_v1.bin'
+        try:
+            hf_hub_download(
+                'guozinan/PuLID', 
+                'pulid_v1.bin', 
+                local_dir=MODEL_CACHE,
+                cache_dir=MODEL_CACHE,
+                local_dir_use_symlinks=False,
+            )
+        except LocalEntryNotFoundError:
+            pass
+        ckpt_path = f'{MODEL_CACHE}/pulid_v1.bin'
         state_dict = torch.load(ckpt_path, map_location='cpu')
         state_dict_dict = {}
         for k, v in state_dict.items():
