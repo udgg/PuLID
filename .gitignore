@@ -159,3 +159,7 @@ output_*.jpg
 output.*.jpg
 output_image_*.jpg
 output_image.*.jpg
+output_*.jpeg
+output.*.jpeg
+output_image_*.jpeg
+output_image.*.jpeg

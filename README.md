@@ -1,7 +1,7 @@
 # PuLID
 
 ### :open_book: PuLID: Pure and Lightning ID Customization via Contrastive Alignment
-> [![arXiv](https://img.shields.io/badge/arXiv-Paper-<COLOR>.svg)](https://arxiv.org/abs/2404.16022) [![arXiv](https://img.shields.io/badge/🤗-HuggingFaceDemo-orange)](https://huggingface.co/spaces/yanze/PuLID) <br>
+> [![arXiv](https://img.shields.io/badge/arXiv-Paper-<COLOR>.svg)](https://arxiv.org/abs/2404.16022) [![arXiv](https://img.shields.io/badge/🤗-HuggingFaceDemo-orange)](https://huggingface.co/spaces/yanze/PuLID) [![Replicate](https://replicate.com/zsxkib/pulid/badge)](https://replicate.com/zsxkib/pulid) <br>
 > Zinan Guo*, Yanze Wu*✝, Zhuowei Chen, Lang Chen, Qian He <br>
 > (*Equal Contribution, ✝Corresponding Author) <br>
 > ByteDance Inc <br>
