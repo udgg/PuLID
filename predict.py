@@ -34,6 +34,11 @@ DEFAULT_NEGATIVE_PROMPT = (
 )
 
 
+# Define the function to check if an image is black
+def is_black_image(image_np):
+    return np.mean(image_np) < 10
+
+
 def run(
     id_image: Optional[np.ndarray],
     supp_image1: Optional[np.ndarray],
@@ -144,6 +149,13 @@ class Predictor(BasePredictor):
 
         pipeline = PuLIDPipeline()
 
+        # Check and convert the VAE's datatype to float16 if it's float32
+        if pipeline.pipe.vae.dtype == torch.float32:
+            pipeline.pipe.vae.to(dtype=torch.float16)
+
+        self.black_image_count = 0
+        self.threshold = 2
+
     def predict(
         self,
         main_face_image: Path = Input(description="ID image (main)"),
@@ -224,7 +236,19 @@ class Predictor(BasePredictor):
             generation_mode,
             mix_identities,
         ]
-        output, intermediate_output = run(*inps)
+
+        output, _ = run(*inps)
+        all_black = all(is_black_image(img_array) for img_array in output)
+
+        if all_black:
+            print("[!] All images were black")
+            self.black_image_count += 1
+            print(f"All generated images are black. Black image count: {self.black_image_count}")
+            if self.black_image_count >= self.threshold:
+                print("[~] Threshold reached. Re-running setup...")
+                self.setup()
+                output, _ = run(*inps)
+                self.black_image_count = 0  # Reset the counter after re-setup
 
         # Save images and collect their paths
         saved_paths = []
