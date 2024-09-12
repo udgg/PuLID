@@ -7,8 +7,13 @@
 > ByteDance Inc <br>
 
 ### :triangular_flag_on_post: Updates
-* **2024.05.01**: release codes&models, also the [🤗HuggingFace Demo](https://huggingface.co/spaces/yanze/PuLID)
+* **2024.09.12**: 💥 We're thrilled to announce the release of the **PuLID-FLUX-v0.9.0 model**. Enjoy exploring its capabilities! 😊 [Learn more](docs/pulid_for_flux.md).
+* **2024.05.23**: share the [preview of our upcoming v1.1 model](docs/v1.1_preview.md), please stay tuned
+* **2024.05.01**: release v1 codes&models, also the [🤗HuggingFace Demo](https://huggingface.co/spaces/yanze/PuLID)
 * **2024.04.25**: release arXiv paper.
+
+## PuLID for FLUX
+Please check the doc and demo of PuLID-FLUX [here](docs/pulid_for_flux.md).
 
 ## Examples
 Images generated with our PuLID
@@ -41,6 +46,28 @@ python app.py
 ### Online HuggingFace Demo
 Thanks for the GPU grant from HuggingFace team, you can try PuLID HF demo in 
 [https://huggingface.co/spaces/yanze/PuLID](https://huggingface.co/spaces/yanze/PuLID)
+
+## :paperclip: Related Resources
+Following are some third-party implementations of PuLID we have found in the Internet. 
+We appreciate the efforts of the respective developers for making PuLID accessible to a wider audience.
+If there are any PuLID based resources and applications that we have not mentioned here, please let us know, 
+and we will include them in this list.
+
+#### Online Demo
+- **Colab**: https://github.com/camenduru/PuLID-jupyter provided by [camenduru](https://github.com/camenduru)
+- **Replicate**: https://replicate.com/zsxkib/pulid provided by [zsxkib](https://replicate.com/zsxkib)
+
+#### ComfyUI
+- https://github.com/cubiq/PuLID_ComfyUI provided by [cubiq](https://github.com/cubiq), native ComfyUI implementation
+- https://github.com/ZHO-ZHO-ZHO/ComfyUI-PuLID-ZHO provided by [ZHO](https://github.com/ZHO-ZHO-ZHO), diffusers-based implementation
+
+#### WebUI
+- https://github.com/Mikubill/sd-webui-controlnet/pull/2838 provided by [huchenlei](https://github.com/huchenlei)
+
+## Disclaimer
+This project strives to impact the domain of AI-driven image generation positively. Users are granted the freedom to 
+create images using this tool, but they are expected to comply with local laws and utilize it responsibly. 
+The developers do not assume any responsibility for potential misuse by users.
 
 
 ##  Citation
