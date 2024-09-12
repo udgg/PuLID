@@ -273,7 +273,6 @@ def create_demo(args, model_name: str, device: str = "cuda" if torch.cuda.is_ava
 
     return demo
 
-
 if __name__ == "__main__":
     import argparse
 
@@ -289,4 +288,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     demo = create_demo(args, args.name, args.device, args.offload)
-    demo.launch(server_name='0.0.0.0', server_port=args.port)
+    demo.launch(server_name='0.0.0.0', server_port=args.port, share=True)
