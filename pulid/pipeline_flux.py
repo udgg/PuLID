@@ -1,5 +1,6 @@
 import gc
 
+import os
 import cv2
 import insightface
 import torch
@@ -67,7 +68,21 @@ class PuLIDPipeline(nn.Module):
         self.eva_transform_mean = eva_transform_mean
         self.eva_transform_std = eva_transform_std
         # antelopev2
-        snapshot_download('DIAMONIK7777/antelopev2', local_dir='models/antelopev2')
+        antelopev2_path = 'models/antelopev2'
+        required_files = ['1k3d68.onnx', '2d106det.onnx', 'genderage.onnx', 'glintr100.onnx', 'scrfd_10g_bnkps.onnx']
+        
+        if os.environ.get("HF_HUB_OFFLINE") == "1":
+            print(f"HF_HUB_OFFLINE is set. Skipping download and using local files in {antelopev2_path}")
+        else:
+            if all(os.path.exists(os.path.join(antelopev2_path, file)) for file in required_files):
+                print(f"All required antelopev2 files found in {antelopev2_path}. Skipping download.")
+            else:
+                snapshot_download(
+                    'DIAMONIK7777/antelopev2', 
+                    local_dir=antelopev2_path,
+                    local_dir_use_symlinks=False,
+                )
+                
         self.app = FaceAnalysis(
             name='antelopev2', root='.', providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
         )

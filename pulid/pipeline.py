@@ -13,7 +13,7 @@ from diffusers import (
 from facexlib.parsing import init_parsing_model
 from facexlib.utils.face_restoration_helper import FaceRestoreHelper
 from huggingface_hub import hf_hub_download, snapshot_download
-from huggingface_hub.utils._errors import LocalEntryNotFoundError
+from huggingface_hub.utils._errors import LocalEntryNotFoundError, OfflineModeIsEnabled
 from insightface.app import FaceAnalysis
 from safetensors.torch import load_file
 from torchvision.transforms import InterpolationMode
@@ -41,7 +41,7 @@ class PuLIDPipeline:
         self.sdxl_base_repo = sdxl_base_repo
 
         # load base model
-        unet = UNet2DConditionModel.from_config(sdxl_base_repo, subfolder='unet').to(self.device, torch.float16)
+        unet = UNet2DConditionModel.from_config(sdxl_base_repo, subfolder='unet', local_dir=MODEL_CACHE).to(self.device, torch.float16)
         try:
             unet_filepath = hf_hub_download(
                 sdxl_lightning_repo,
@@ -58,7 +58,7 @@ class PuLIDPipeline:
         unet.load_state_dict(load_file(unet_filepath))
         self.hack_unet_attn_layers(unet)
         self.pipe = StableDiffusionXLPipeline.from_pretrained(
-            sdxl_base_repo, unet=unet, torch_dtype=torch.float16, variant="fp16"
+            sdxl_base_repo, unet=unet, torch_dtype=torch.float16, variant="fp16", cache_dir=MODEL_CACHE, local_dir=MODEL_CACHE
         ).to(self.device)
         self.pipe.watermark = None
 
@@ -95,16 +95,32 @@ class PuLIDPipeline:
         self.eva_transform_mean = eva_transform_mean
         self.eva_transform_std = eva_transform_std
         # antelopev2
-        snapshot_download(
-            'DIAMONIK7777/antelopev2', 
-            local_dir=f'{MODEL_CACHE}/antelopev2',
-            local_dir_use_symlinks=False,
-        )
+        antelopev2_path = f'{MODEL_CACHE}/antelopev2'
+        required_files = ['1k3d68.onnx', '2d106det.onnx', 'genderage.onnx', 'glintr100.onnx', 'scrfd_10g_bnkps.onnx']
+        
+        if os.environ.get("HF_HUB_OFFLINE") == "1":
+            print(f"HF_HUB_OFFLINE is set. Skipping download and using local files in {antelopev2_path}")
+        else:
+            if all(os.path.exists(os.path.join(antelopev2_path, file)) for file in required_files):
+                print(f"All required antelopev2 files found in {antelopev2_path}. Skipping download.")
+            else:
+                if os.environ.get("HF_HUB_OFFLINE") == "1":
+                    raise RuntimeError(f"Some required antelopev2 files are missing in {antelopev2_path} and HF_HUB_OFFLINE is set. Cannot download.")
+                else:
+                    try:
+                        snapshot_download(
+                            'DIAMONIK7777/antelopev2', 
+                            local_dir=antelopev2_path,
+                            local_dir_use_symlinks=False,
+                        )
+                    except (LocalEntryNotFoundError, OfflineModeIsEnabled):
+                        raise RuntimeError(f"Failed to download antelopev2 models to {antelopev2_path}")
+
         self.app = FaceAnalysis(
             name='antelopev2', root='.', providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
         )
         self.app.prepare(ctx_id=0, det_size=(640, 640))
-        self.handler_ante = insightface.model_zoo.get_model(f'{MODEL_CACHE}/antelopev2/glintr100.onnx')
+        self.handler_ante = insightface.model_zoo.get_model(f'{antelopev2_path}/glintr100.onnx')
         self.handler_ante.prepare(ctx_id=0)
 
         gc.collect()

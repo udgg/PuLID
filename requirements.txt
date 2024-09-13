@@ -17,3 +17,5 @@ spaces==0.19.4
 SentencePiece
 fire
 safetensors
+invisible-watermark
+setuptools

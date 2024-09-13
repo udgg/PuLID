@@ -94,7 +94,7 @@ class HFTextEncoder(nn.Module):
         if transformers is None:
             raise RuntimeError("Please `pip install transformers` to use pre-trained HuggingFace models")
         if config is None:
-            self.config = AutoConfig.from_pretrained(model_name_or_path)
+            self.config = AutoConfig.from_pretrained(model_name_or_path, cache_dir=MODEL_CACHE)
             if masked_language_modeling:
                 create_func, model_args = (AutoModelForMaskedLM.from_pretrained, model_name_or_path) if pretrained else (
                     AutoModelForMaskedLM.from_config, self.config)
@@ -134,7 +134,7 @@ class HFTextEncoder(nn.Module):
 
         # self.itm_proj = nn.Linear(d_model, 2, bias=False)
         # self.mlm_proj = nn.Linear(d_model, self.config.vocab_size), bias=False)
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, cache_dir=MODEL_CACHE)
 
     # def forward_itm(self, x:TensorType, image_embeds:TensorType) -> TensorType:
     #     image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(x.device)  

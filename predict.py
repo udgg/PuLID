@@ -1,5 +1,5 @@
 # Prediction interface for Cog ⚙️
-# https://cog.run/python
+# https://github.com/replicate/cog/blob/main/docs/python.md
 
 from cog import BasePredictor, Input, Path
 import os
@@ -7,9 +7,15 @@ import torch
 import numpy as np
 from PIL import Image
 from typing import List
+from einops import rearrange
+import time
 
-# Import FluxGenerator from app_flux.py
-from app_flux import FluxGenerator, get_models
+from flux.cli import SamplingOptions
+from flux.sampling import denoise, get_noise, get_schedule, prepare, unpack
+from flux.util import load_ae, load_clip, load_flow_model, load_t5
+from pulid.pipeline_flux import PuLIDPipeline
+from pulid.utils import resize_numpy_image_long
+# from huggingface_hub import login
 
 MODEL_CACHE = "models"
 os.environ["HF_DATASETS_OFFLINE"] = "1"
@@ -31,16 +37,31 @@ DEFAULT_NEGATIVE_PROMPT = (
 class Predictor(BasePredictor):
     def setup(self) -> None:
         """Load the model into memory to make running multiple predictions efficient"""
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        start_time = time.time()
+        self.device = torch.device("cuda")
         self.model_name = "flux-dev"
         self.offload = False
 
-        class Args:
-            pretrained_model = "path/to/pretrained/model"  # Update this path
+        self.model, self.ae, self.t5, self.clip = self.get_models(
+            self.model_name,
+            device=self.device,
+            offload=self.offload,
+            cache_dir=MODEL_CACHE,
+        )
+        self.pulid_model = PuLIDPipeline(self.model, self.device, weight_dtype=torch.bfloat16)
+        self.pulid_model.load_pretrain(f"{MODEL_CACHE}/pulid_flux_v0.9.0.safetensors")  # Update this path
+        end_time = time.time()
+        print(f"Setup completed in {end_time - start_time:.2f} seconds")
 
-        self.args = Args()
-        self.generator = FluxGenerator(self.model_name, self.device, self.offload, self.args)
+    def get_models(self, name: str, device: torch.device, offload: bool, cache_dir: str):
+        t5 = load_t5(device, max_length=128)
+        clip = load_clip(device)  # Remove cache_dir argument
+        model = load_flow_model(name, device=device)
+        model.eval()
+        ae = load_ae(name, device=device)
+        return model, ae, t5, clip
 
+    @torch.inference_mode()
     def predict(
         self,
         id_image: Path = Input(description="ID image"),
@@ -58,6 +79,8 @@ class Predictor(BasePredictor):
         output_format: str = Input(description="Output format", choices=["png", "jpg", "webp"], default="png"),
     ) -> List[Path]:
         """Run a single prediction on the model"""
+        start_time = time.time()
+
         if seed == -1:
             seed = int.from_bytes(os.urandom(4), "big")
         print(f"Using seed: {seed}")
@@ -65,8 +88,8 @@ class Predictor(BasePredictor):
         # Load and preprocess the ID image
         id_image_np = np.array(Image.open(str(id_image))) if id_image else None
 
-        # Generate the image using FluxGenerator
-        generated_image, used_seed, _ = self.generator.generate_image(
+        # Generate the image
+        generated_image, used_seed, _ = self.generate_image(
             width=width,
             height=height,
             num_steps=num_steps,
@@ -86,4 +109,81 @@ class Predictor(BasePredictor):
         output_path = f"output.{output_format}"
         generated_image.save(output_path)
 
+        end_time = time.time()
+        print(f"Image generated with seed: {used_seed}")
+        print(f"Total prediction time: {end_time - start_time:.2f} seconds")
         return [Path(output_path)]
+
+    def generate_image(self, width, height, num_steps, start_step, guidance, seed, prompt, id_image=None, id_weight=1.0, neg_prompt="", true_cfg=1.0, timestep_to_start_cfg=1, max_sequence_length=128):
+        generate_start_time = time.time()
+        self.t5.max_length = max_sequence_length
+
+        opts = SamplingOptions(
+            prompt=prompt,
+            width=width,
+            height=height,
+            num_steps=num_steps,
+            guidance=guidance,
+            seed=seed,
+        )
+
+        if opts.seed is None:
+            opts.seed = torch.Generator(device="cpu").seed()
+        print(f"Generating '{opts.prompt}' with seed {opts.seed}")
+
+        use_true_cfg = abs(true_cfg - 1.0) > 1e-2
+
+        if id_image is not None:
+            id_image = resize_numpy_image_long(id_image, 1024)
+            id_embeddings, uncond_id_embeddings = self.pulid_model.get_id_embedding(id_image, cal_uncond=use_true_cfg)
+        else:
+            id_embeddings = None
+            uncond_id_embeddings = None
+
+        # prepare input
+        x = get_noise(
+            1,
+            opts.height,
+            opts.width,
+            device=self.device,
+            dtype=torch.bfloat16,
+            seed=opts.seed,
+        )
+        timesteps = get_schedule(
+            opts.num_steps,
+            x.shape[-1] * x.shape[-2] // 4,
+            shift=True,
+        )
+
+        inp = prepare(t5=self.t5, clip=self.clip, img=x, prompt=opts.prompt)
+        inp_neg = prepare(t5=self.t5, clip=self.clip, img=x, prompt=neg_prompt) if use_true_cfg else None
+
+        # denoise initial noise
+        denoise_start_time = time.time()
+        x = denoise(
+            self.model, **inp, timesteps=timesteps, guidance=opts.guidance, id=id_embeddings, id_weight=id_weight,
+            start_step=start_step, uncond_id=uncond_id_embeddings, true_cfg=true_cfg,
+            timestep_to_start_cfg=timestep_to_start_cfg,
+            neg_txt=inp_neg["txt"] if use_true_cfg else None,
+            neg_txt_ids=inp_neg["txt_ids"] if use_true_cfg else None,
+            neg_vec=inp_neg["vec"] if use_true_cfg else None,
+        )
+        denoise_end_time = time.time()
+        print(f"Denoising time: {denoise_end_time - denoise_start_time:.2f} seconds")
+
+        # decode latents to pixel space
+        decode_start_time = time.time()
+        x = unpack(x.float(), opts.height, opts.width)
+        with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
+            x = self.ae.decode(x)
+        decode_end_time = time.time()
+        print(f"Decoding time: {decode_end_time - decode_start_time:.2f} seconds")
+
+        # bring into PIL format
+        x = x.clamp(-1, 1)
+        x = rearrange(x[0], "c h w -> h w c")
+
+        img = Image.fromarray((127.5 * (x + 1.0)).cpu().byte().numpy())
+        generate_end_time = time.time()
+        print(f"Total generate_image time: {generate_end_time - generate_start_time:.2f} seconds")
+        return img, str(opts.seed), self.pulid_model.debug_img_list

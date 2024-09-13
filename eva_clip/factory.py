@@ -20,6 +20,7 @@ from .utils import resize_clip_pos_embed, resize_evaclip_pos_embed, resize_visua
 
 _MODEL_CONFIG_PATHS = [Path(__file__).parent / f"model_configs/"]
 _MODEL_CONFIGS = {}  # directory (model_name: config) of model architecture configs
+MODEL_CACHE = "models"
 
 
 def _natural_key(string_):
@@ -236,7 +237,7 @@ def create_model(
             precision=precision,
             device=device,
             jit=jit,
-            cache_dir=cache_dir,
+            cache_dir=MODEL_CACHE,
         )
     else:
         model_cfg = get_model_config(model_name)

@@ -106,29 +106,27 @@ def load_flow_model(name: str, device: str = "cuda", hf_download: bool = True):
     # Loading Flux
     print("Init model")
     ckpt_path = configs[name].ckpt_path
-    if (
-        ckpt_path is None
-        and configs[name].repo_id is not None
-        and configs[name].repo_flow is not None
-        and hf_download
-    ):
-        ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_flow)
+    if ckpt_path is None or not os.path.exists(ckpt_path):
+        if configs[name].repo_id is not None and configs[name].repo_flow is not None and hf_download:
+            print(f"Downloading {configs[name].repo_flow} from {configs[name].repo_id}")
+            ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_flow)
+        else:
+            raise FileNotFoundError(f"Checkpoint file not found: {ckpt_path}")
 
     with torch.device(device):
         model = Flux(configs[name].params).to(torch.bfloat16)
 
-    if ckpt_path is not None:
-        print("Loading checkpoint")
-        # load_sft doesn't support torch.device
-        sd = load_sft(ckpt_path, device=str(device))
-        missing, unexpected = model.load_state_dict(sd, strict=False)
-        print_load_warning(missing, unexpected)
+    print("Loading checkpoint")
+    # load_sft doesn't support torch.device
+    sd = load_sft(ckpt_path, device=str(device))
+    missing, unexpected = model.load_state_dict(sd, strict=False)
+    print_load_warning(missing, unexpected)
     return model
 
 
 def load_t5(device: str = "cuda", max_length: int = 512) -> HFEmbedder:
     # max length 64, 128, 256 and 512 should work (if your sequence is short enough)
-    return HFEmbedder("xlabs-ai/xflux_text_encoders", max_length=max_length, torch_dtype=torch.bfloat16).to(device)
+    return HFEmbedder("XLabs-AI/xflux_text_encoders", max_length=max_length, torch_dtype=torch.bfloat16).to(device)
 
 
 def load_clip(device: str = "cuda") -> HFEmbedder:
@@ -137,23 +135,22 @@ def load_clip(device: str = "cuda") -> HFEmbedder:
 
 def load_ae(name: str, device: str = "cuda", hf_download: bool = True) -> AutoEncoder:
     ckpt_path = configs[name].ae_path
-    if (
-        ckpt_path is None
-        and configs[name].repo_id is not None
-        and configs[name].repo_ae is not None
-        and hf_download
-    ):
-        ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_ae)
+    if ckpt_path is None or not os.path.exists(ckpt_path):
+        if configs[name].repo_id is not None and configs[name].repo_ae is not None and hf_download:
+            print(f"Downloading {configs[name].repo_ae} from {configs[name].repo_id}")
+            ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_ae)
+        else:
+            raise FileNotFoundError(f"Autoencoder checkpoint file not found: {ckpt_path}")
 
     # Loading the autoencoder
     print("Init AE")
     with torch.device(device):
         ae = AutoEncoder(configs[name].ae_params)
 
-    if ckpt_path is not None:
-        sd = load_sft(ckpt_path, device=str(device))
-        missing, unexpected = ae.load_state_dict(sd, strict=False)
-        print_load_warning(missing, unexpected)
+    print("Loading AE checkpoint")
+    sd = load_sft(ckpt_path, device=str(device))
+    missing, unexpected = ae.load_state_dict(sd, strict=False)
+    print_load_warning(missing, unexpected)
     return ae
 
 
