@@ -1,5 +1,5 @@
 import math
-from typing import Callable
+from typing import Callable, List
 
 import torch
 from einops import rearrange, repeat
@@ -29,37 +29,72 @@ def get_noise(
     )
 
 
-def prepare(t5: HFEmbedder, clip: HFEmbedder, img: Tensor, prompt: str) -> dict[str, Tensor]:
+def get_noise_batch(
+    seeds: List[int],
+    height: int,
+    width: int,
+    device: torch.device,
+    dtype: torch.dtype,
+):
+    num_samples = len(seeds)
+    c = 16
+    h = 2 * math.ceil(height / 16)
+    w = 2 * math.ceil(width / 16)
+
+    # Preallocate the output tensor
+    x = torch.empty(num_samples, c, h, w, device=device, dtype=dtype)
+
+    # Create a generator once
+    generator = torch.Generator(device=device)
+
+    for i, seed in enumerate(seeds):
+        generator.manual_seed(seed)
+        x[i] = torch.randn(c, h, w, generator=generator, device=device, dtype=dtype)
+
+    return x
+
+
+def prepare(
+    t5: HFEmbedder, clip: HFEmbedder, img: Tensor, prompt: List[str], device: torch.device
+) -> dict[str, Tensor]:
     bs, c, h, w = img.shape
-    if bs == 1 and not isinstance(prompt, str):
-        bs = len(prompt)
+    ph, pw = 2, 2
+    h_patches = h // ph
+    w_patches = w // pw
+    hw_patches = h_patches * w_patches
 
-    img = rearrange(img, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)
-    if img.shape[0] == 1 and bs > 1:
-        img = repeat(img, "1 ... -> bs ...", bs=bs)
+    # Reshape img
+    img = rearrange(img, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=ph, pw=pw)
 
-    img_ids = torch.zeros(h // 2, w // 2, 3)
-    img_ids[..., 1] = img_ids[..., 1] + torch.arange(h // 2)[:, None]
-    img_ids[..., 2] = img_ids[..., 2] + torch.arange(w // 2)[None, :]
-    img_ids = repeat(img_ids, "h w c -> b (h w) c", b=bs)
+    # Generate img_ids efficiently
+    y_coords = torch.arange(h_patches, device=device, dtype=img.dtype)
+    x_coords = torch.arange(w_patches, device=device, dtype=img.dtype)
+    grid_y, grid_x = torch.meshgrid(y_coords, x_coords, indexing="ij")
+    img_ids = torch.stack(
+        (
+            torch.zeros_like(grid_y),  # Assuming the first channel is zeros
+            grid_y,
+            grid_x,
+        ),
+        dim=-1,
+    )
+    img_ids = img_ids.reshape(1, hw_patches, 3).expand(bs, hw_patches, 3)
 
-    if isinstance(prompt, str):
-        prompt = [prompt]
+    # Prepare text embeddings
     txt = t5(prompt)
-    if txt.shape[0] == 1 and bs > 1:
-        txt = repeat(txt, "1 ... -> bs ...", bs=bs)
-    txt_ids = torch.zeros(bs, txt.shape[1], 3)
 
+    # Prepare txt_ids as zeros (if required)
+    txt_ids = torch.zeros(bs, txt.shape[1], 3, device=device, dtype=txt.dtype)
+
+    # Prepare CLIP embeddings
     vec = clip(prompt)
-    if vec.shape[0] == 1 and bs > 1:
-        vec = repeat(vec, "1 ... -> bs ...", bs=bs)
 
     return {
-        "img": img,
-        "img_ids": img_ids.to(img.device),
-        "txt": txt.to(img.device),
-        "txt_ids": txt_ids.to(img.device),
-        "vec": vec.to(img.device),
+        "img": img.to(device),
+        "img_ids": img_ids.to(device),
+        "txt": txt.to(device),
+        "txt_ids": txt_ids.to(device),
+        "vec": vec.to(device),
     }
 
 
@@ -67,9 +102,7 @@ def time_shift(mu: float, sigma: float, t: Tensor):
     return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
 
 
-def get_lin_function(
-    x1: float = 256, y1: float = 0.5, x2: float = 4096, y2: float = 1.15
-) -> Callable[[float], float]:
+def get_lin_function(x1: float = 256, y1: float = 0.5, x2: float = 4096, y2: float = 1.15) -> Callable[[float], float]:
     m = (y2 - y1) / (x2 - x1)
     b = y1 - m * x1
     return lambda x: m * x + b
