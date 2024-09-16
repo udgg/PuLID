@@ -44,10 +44,9 @@ build:
 
   # commands run after the environment is setup
   run:
-    - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.8.1/pget_linux_x86_64" && chmod +x /usr/local/bin/pget
+    - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.8.2/pget_linux_x86_64" && chmod +x /usr/local/bin/pget
     - pip install --upgrade torch numpy torchvision
     - "sed -i '8s/from torchvision.transforms.functional_tensor import rgb_to_grayscale/from torchvision.transforms.functional import rgb_to_grayscale/' /root/.pyenv/versions/3.10.14/lib/python3.10/site-packages/basicsr/data/degradations.py"
-    # - "sed -i 's/from torchvision.transforms import functional_tensor as F/from torchvision.transforms import functional as F/' /root/.pyenv/versions/3.10.14/lib/python3.10/site-packages/torchvision/transforms/functional_tensor.py"
 
 
 
