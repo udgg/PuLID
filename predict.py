@@ -109,38 +109,52 @@ class Predictor(BasePredictor):
     @torch.inference_mode()
     def predict(
         self,
-        main_face_image: Path = Input(description="ID image for face generation"),
-        prompt: str = Input(description="Text prompt for image generation", default="portrait, color, cinematic"),
-        negative_prompt: str = Input(
-            description="Negative prompt to guide what to avoid in the image", default=DEFAULT_NEGATIVE_PROMPT
+        main_face_image: Path = Input(description="Upload an ID image for face generation"),
+        prompt: str = Input(
+            description="Enter a text prompt to guide image generation", default="portrait, color, cinematic"
         ),
-        width: int = Input(description="Width of the generated image", ge=256, le=1536, default=896),
-        height: int = Input(description="Height of the generated image", ge=256, le=1536, default=1152),
-        num_steps: int = Input(description="Number of denoising steps", ge=1, le=20, default=20),
+        negative_prompt: str = Input(
+            description="Enter a negative prompt to specify what to avoid in the image", default=DEFAULT_NEGATIVE_PROMPT
+        ),
+        width: int = Input(
+            description="Set the width of the generated image (256-1536 pixels)", ge=256, le=1536, default=896
+        ),
+        height: int = Input(
+            description="Set the height of the generated image (256-1536 pixels)", ge=256, le=1536, default=1152
+        ),
+        num_steps: int = Input(description="Set the number of denoising steps (1-20)", ge=1, le=20, default=20),
         start_step: int = Input(
-            description="Timestep to start inserting ID (0-4 recommended, lower for higher fidelity, higher for more editability)",
+            description="Set the timestep to start inserting ID (0-4 recommended, 0 for highest fidelity, 4 for more editability)",
             ge=0,
             le=10,
             default=0,
         ),
         guidance_scale: float = Input(
-            description="Guidance scale for text prompt influence", ge=1.0, le=10.0, default=4.0
+            description="Set the guidance scale for text prompt influence (1.0-10.0)", ge=1.0, le=10.0, default=4.0
         ),
-        id_weight: float = Input(description="Weight of the ID image influence", ge=0.0, le=3.0, default=1.0),
-        seed: int = Input(description="Random seed for generation (leave blank or -1 for random)", default=None),
+        id_weight: float = Input(
+            description="Set the weight of the ID image influence (0.0-3.0)", ge=0.0, le=3.0, default=1.0
+        ),
+        seed: int = Input(description="Set a random seed for generation (leave blank or -1 for random)", default=None),
         true_cfg: float = Input(
-            description="True CFG scale (1.0 for fake CFG, >1.0 for true CFG)", ge=1.0, le=10.0, default=1.0
+            description="Set the Classifier-Free Guidance (CFG) scale. 1.0 uses standard CFG, while values >1.0 enable True CFG for more precise control over generation. Higher values increase adherence to the prompt at the cost of image quality.",
+            ge=1.0,
+            le=10.0,
+            default=1.0
         ),
         max_sequence_length: int = Input(
-            description="Max sequence length for prompt (T5), smaller is faster", ge=128, le=512, default=128
+            description="Set the max sequence length for prompt (T5), smaller is faster (128-512)",
+            ge=128,
+            le=512,
+            default=128,
         ),
         output_format: str = Input(
-            description="Format of the output image", choices=["png", "jpg", "webp"], default="webp"
+            description="Choose the format of the output image", choices=["png", "jpg", "webp"], default="webp"
         ),
         output_quality: int = Input(
-            description="Quality of the output image (for jpg and webp)", ge=1, le=100, default=80
+            description="Set the quality of the output image for jpg and webp (1-100)", ge=1, le=100, default=80
         ),
-        num_outputs: int = Input(description="Number of images to generate", ge=1, le=4, default=1),
+        num_outputs: int = Input(description="Set the number of images to generate (1-4)", ge=1, le=4, default=1),
     ) -> List[Path]:
         """Run a single prediction on the model to generate multiple outputs"""
         start_time = time.time()
