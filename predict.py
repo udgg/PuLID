@@ -2,7 +2,6 @@
 # https://github.com/replicate/cog/blob/main/docs/python.md
 
 import subprocess
-from cog import BasePredictor, Input, Path
 import os
 import torch
 import numpy as np
@@ -10,13 +9,15 @@ from PIL import Image
 from typing import List
 from einops import rearrange
 import time
+import requests
+import base64
 
+from io import BytesIO
 from flux.cli import SamplingOptions
 from flux.sampling import denoise, get_noise, get_schedule, prepare, unpack, get_noise_batch
 from flux.util import load_ae, load_clip, load_flow_model, load_t5
 from pulid.pipeline_flux import PuLIDPipeline
 from pulid.utils import resize_numpy_image_long
-# from huggingface_hub import login
 
 MODEL_CACHE = "models"
 os.environ["HF_DATASETS_OFFLINE"] = "1"
@@ -57,8 +58,8 @@ def download_weights(url: str, dest: str) -> None:
     print("[+] Download completed in: ", time.time() - start, "seconds")
 
 
-class Predictor(BasePredictor):
-    def setup(self) -> None:
+class Predictor():
+    def __init__(self) -> None:
         """Load the model into memory to make running multiple predictions efficient"""
         start_time = time.time()
 
@@ -106,56 +107,24 @@ class Predictor(BasePredictor):
         ae = load_ae(name, device=device)
         return model, ae, t5, clip
 
-    @torch.inference_mode()
     def predict(
         self,
-        main_face_image: Path = Input(description="Upload an ID image for face generation"),
-        prompt: str = Input(
-            description="Enter a text prompt to guide image generation", default="portrait, color, cinematic"
-        ),
-        negative_prompt: str = Input(
-            description="Enter a negative prompt to specify what to avoid in the image", default=DEFAULT_NEGATIVE_PROMPT
-        ),
-        width: int = Input(
-            description="Set the width of the generated image (256-1536 pixels)", ge=256, le=1536, default=896
-        ),
-        height: int = Input(
-            description="Set the height of the generated image (256-1536 pixels)", ge=256, le=1536, default=1152
-        ),
-        num_steps: int = Input(description="Set the number of denoising steps (1-20)", ge=1, le=20, default=20),
-        start_step: int = Input(
-            description="Set the timestep to start inserting ID (0-4 recommended, 0 for highest fidelity, 4 for more editability)",
-            ge=0,
-            le=10,
-            default=0,
-        ),
-        guidance_scale: float = Input(
-            description="Set the guidance scale for text prompt influence (1.0-10.0)", ge=1.0, le=10.0, default=4.0
-        ),
-        id_weight: float = Input(
-            description="Set the weight of the ID image influence (0.0-3.0)", ge=0.0, le=3.0, default=1.0
-        ),
-        seed: int = Input(description="Set a random seed for generation (leave blank or -1 for random)", default=None),
-        true_cfg: float = Input(
-            description="Set the Classifier-Free Guidance (CFG) scale. 1.0 uses standard CFG, while values >1.0 enable True CFG for more precise control over generation. Higher values increase adherence to the prompt at the cost of image quality.",
-            ge=1.0,
-            le=10.0,
-            default=1.0
-        ),
-        max_sequence_length: int = Input(
-            description="Set the max sequence length for prompt (T5), smaller is faster (128-512)",
-            ge=128,
-            le=512,
-            default=128,
-        ),
-        output_format: str = Input(
-            description="Choose the format of the output image", choices=["png", "jpg", "webp"], default="webp"
-        ),
-        output_quality: int = Input(
-            description="Set the quality of the output image for jpg and webp (1-100)", ge=1, le=100, default=80
-        ),
-        num_outputs: int = Input(description="Set the number of images to generate (1-4)", ge=1, le=4, default=1),
-    ) -> List[Path]:
+        main_face_image,
+        prompt,
+        negative_prompt,
+        width,
+        height,
+        num_steps,
+        start_step,
+        guidance_scale,
+        id_weight,
+        seed,
+        true_cfg,
+        max_sequence_length,
+        output_format,
+        output_quality,
+        num_outputs,
+    ):
         """Run a single prediction on the model to generate multiple outputs"""
         start_time = time.time()
 
@@ -167,7 +136,8 @@ class Predictor(BasePredictor):
         print(f"Using seeds: {seeds}")
 
         # Load and preprocess the ID image
-        id_image_np = np.array(Image.open(str(main_face_image))) if main_face_image else None
+        response = requests.get(main_face_image)
+        id_image_np = np.array(Image.open(BytesIO(response.content))) if main_face_image else None
 
         # Generate the images
         generated_images, used_seeds, _ = self.generate_image(
@@ -196,9 +166,12 @@ class Predictor(BasePredictor):
                 save_params["quality"] = output_quality
                 if output_format == "jpg":
                     save_params["optimize"] = True
-
-            generated_image.save(output_path, **save_params)
-            output_paths.append(Path(output_path))
+            
+            buffer = BytesIO()
+            generated_image.save(buffer, **save_params)
+            image_bytes = buffer.getvalue()
+           
+            output_paths.append(base64.b64encode(image_bytes).decode('utf-8'))
 
             print(f"Image {i+1} generated with seed: {used_seed}")
 
@@ -316,3 +289,33 @@ class Predictor(BasePredictor):
         generate_end_time = time.time()
         print(f"Total generate_image time: {generate_end_time - generate_start_time:.2f} seconds")
         return images, seeds, self.pulid_model.debug_img_list
+
+predictor = Predictor()
+
+def handler(job):
+    job_input = job['input']
+    prompt = job_input['prompt']
+
+    time_start = time.time()
+    image = predictor.predict(
+        main_face_image=job_input['main_face_image'],
+        prompt=job_input['prompt'],
+        negative_prompt=job_input.get('negative_prompt', 'bad quality, worst quality, text, signature, watermark, extra limbs'),
+        width=int(job_input.get("width", 896)),
+        heigh=int(job_input.get("heigh", 1152)),
+        num_steps=int(job_input.get("num_steps", 20)),
+        start_step=int(job_input.get("start_step", 4)),
+        guidance_scale=float(job_input.get("guidance_scale", 4)),
+        id_weight=int(job_input.get("id_weight", 1)),
+        seed=None,
+        true_cfg=int(job_input.get("true_cfg", 1)),
+        max_sequence_length=int(job_input.get('max_sequence_length', 128)),
+        output_format="png,
+        output_quality=100,
+        num_outputs=1,
+    )
+    print(f"Time taken: {time.time() - time_start}")
+
+    return image[0]
+    
+runpod.serverless.start({"handler": handler})
